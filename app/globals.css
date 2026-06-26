@@ -15,3 +15,34 @@
   border-color: var(--danger);
   color: var(--danger);
 }
+
+.group-row {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.group-row:hover td {
+  background: #2a3548 !important;
+}
+
+.child-row td {
+  font-size: 0.8rem;
+  padding-left: 0.5rem !important;
+  border-left: 3px solid var(--accent);
+}
+
+.child-row:hover td {
+  background: rgba(59, 130, 246, 0.08) !important;
+}
+
+.pc-name {
+  font-family: monospace;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.expand-cell {
+  width: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}

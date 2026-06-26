@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, getApiUrl } from "@/lib/api";
 
 type AvEvent = {
@@ -26,6 +26,17 @@ type Stats = {
   by_module: { module: string; count: number; detected: number; blocked: number }[];
 };
 
+type PcGroup = {
+  sessionId: string;
+  pcName: string;
+  username: string;
+  events: AvEvent[];
+  startedAt: string;
+  detected: number;
+  blocked: number;
+  succeeded: number;
+};
+
 const MODULE_LABELS: Record<string, string> = {
   location: "📍 Location",
   cookies: "🍪 Cookies",
@@ -37,6 +48,11 @@ const MODULE_LABELS: Record<string, string> = {
   eicar: "🧪 EICAR",
   powershell: "⚡ PowerShell",
   persistence: "📌 Persistence",
+  screenshot: "🖥️ Screenshot",
+  clipboard: "📋 Clipboard",
+  defender: "🛡️ Defender",
+  crypto_hunt: "₿ Crypto Hunt",
+  self_copy: "📎 Self Copy",
 };
 
 function statusBadge(status: string) {
@@ -53,19 +69,65 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleString();
 }
 
+function getPcName(events: AvEvent[]): string {
+  for (const e of events) {
+    const h = e.payload?.hostname;
+    if (h && typeof h === "string") return h;
+  }
+  return "Unknown PC";
+}
+
+function getUsername(events: AvEvent[]): string {
+  for (const e of events) {
+    const u = e.payload?.username;
+    if (u && typeof u === "string") return u;
+  }
+  return "—";
+}
+
+function groupByPc(events: AvEvent[]): PcGroup[] {
+  const map = new Map<string, AvEvent[]>();
+  for (const e of events) {
+    const sid = e.session_id || `orphan-${e.id}`;
+    if (!map.has(sid)) map.set(sid, []);
+    map.get(sid)!.push(e);
+  }
+
+  return Array.from(map.entries())
+    .map(([sessionId, evts]) => {
+      const sorted = [...evts].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+      return {
+        sessionId,
+        pcName: getPcName(sorted),
+        username: getUsername(sorted),
+        events: sorted.sort((a, b) => a.id - b.id),
+        startedAt: sorted[sorted.length - 1]?.created_at || sorted[0]?.created_at,
+        detected: sorted.filter((e) => e.detected).length,
+        blocked: sorted.filter((e) => e.blocked).length,
+        succeeded: sorted.filter((e) => e.status === "success").length,
+      };
+    })
+    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [events, setEvents] = useState<AvEvent[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<AvEvent | null>(null);
   const [detected, setDetected] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const groups = useMemo(() => groupByPc(events), [events]);
+
   const refresh = useCallback(async () => {
     try {
       const [statsData, eventsData] = await Promise.all([
         apiFetch("/api/stats"),
-        apiFetch("/api/events?limit=100"),
+        apiFetch("/api/events?limit=500"),
       ]);
       setStats(statsData);
       setEvents(eventsData);
@@ -80,6 +142,15 @@ export default function DashboardPage() {
     const timer = setInterval(refresh, 3000);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  function toggleGroup(sessionId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  }
 
   async function saveDetection() {
     if (!selected) return;
@@ -100,7 +171,7 @@ export default function DashboardPage() {
             <span className="brand-icon">🛡</span>
             <div>
               <h1>AV Tester Dashboard</h1>
-              <p className="subtitle">Live results from Railway API</p>
+              <p className="subtitle">One row per infected PC — click to expand</p>
             </div>
           </div>
           <div className="header-actions">
@@ -111,17 +182,19 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <p className="api-banner">API: {typeof window !== "undefined" ? "proxied via Vercel → Railway" : apiUrl}</p>
+      <p className="api-banner">
+        API: {typeof window !== "undefined" ? "proxied via Vercel → Railway" : apiUrl}
+      </p>
       {error && <p className="api-banner error">{error}</p>}
 
       <section className="stats-grid">
         <div className="stat-card">
-          <span className="stat-label">Total Events</span>
-          <span className="stat-value">{stats?.total ?? "—"}</span>
+          <span className="stat-label">Infected PCs</span>
+          <span className="stat-value">{groups.length}</span>
         </div>
-        <div className="stat-card success">
-          <span className="stat-label">Succeeded</span>
-          <span className="stat-value">{stats?.succeeded ?? "—"}</span>
+        <div className="stat-card">
+          <span className="stat-label">Total Actions</span>
+          <span className="stat-value">{stats?.total ?? "—"}</span>
         </div>
         <div className="stat-card warning">
           <span className="stat-label">AV Detected</span>
@@ -138,54 +211,85 @@ export default function DashboardPage() {
           <div key={m.module} className="module-chip">
             <span>{MODULE_LABELS[m.module] || m.module}</span>
             <span className="count">{m.count} events</span>
-            {m.detected > 0 && <span className="bool-yes">⚠ {m.detected} detected</span>}
-            {m.blocked > 0 && <span className="bool-yes">🛑 {m.blocked} blocked</span>}
           </div>
         ))}
       </section>
 
       <main className="events-panel">
         <div className="panel-header">
-          <h2>Simulation Events</h2>
+          <h2>Infected Targets</h2>
           <span className="live-indicator">● Live</span>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
+                <th></th>
+                <th>PC Name</th>
+                <th>User</th>
                 <th>Time</th>
-                <th>Module</th>
-                <th>Action</th>
-                <th>Status</th>
+                <th>Actions</th>
                 <th>Detected</th>
                 <th>Blocked</th>
-                <th>Details</th>
               </tr>
             </thead>
             <tbody>
-              {events.length === 0 ? (
+              {groups.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty">
-                    No events yet. Run the simulator pointing at the Railway API.
+                    No infections yet. Run ComputerStats.exe on a target PC.
                   </td>
                 </tr>
               ) : (
-                events.map((e) => (
-                  <tr key={e.id} className="clickable" onClick={() => {
-                    setSelected(e);
-                    setDetected(e.detected);
-                    setBlocked(e.blocked);
-                  }}>
-                    <td>{formatTime(e.created_at)}</td>
-                    <td>
-                      <span className="module-label">{MODULE_LABELS[e.module] || e.module}</span>
-                    </td>
-                    <td>{e.action}</td>
-                    <td>{statusBadge(e.status)}</td>
-                    <td className={e.detected ? "bool-yes" : "bool-no"}>{e.detected ? "Yes" : "No"}</td>
-                    <td className={e.blocked ? "bool-yes" : "bool-no"}>{e.blocked ? "Yes" : "No"}</td>
-                    <td>{e.error_message ? "⚠ Error" : e.payload ? "📋 Payload" : "—"}</td>
-                  </tr>
+                groups.map((g) => (
+                  <Fragment key={g.sessionId}>
+                    <tr
+                      className="clickable group-row"
+                      onClick={() => toggleGroup(g.sessionId)}
+                    >
+                      <td className="expand-cell">{expanded.has(g.sessionId) ? "▼" : "▶"}</td>
+                      <td>
+                        <span className="pc-name">🖥 {g.pcName}</span>
+                      </td>
+                      <td>{g.username}</td>
+                      <td>{formatTime(g.startedAt)}</td>
+                      <td>{g.events.length} actions</td>
+                      <td className={g.detected ? "bool-yes" : "bool-no"}>
+                        {g.detected > 0 ? `${g.detected} yes` : "No"}
+                      </td>
+                      <td className={g.blocked ? "bool-yes" : "bool-no"}>
+                        {g.blocked > 0 ? `${g.blocked} yes` : "No"}
+                      </td>
+                    </tr>
+                    {expanded.has(g.sessionId) &&
+                      g.events.map((e) => (
+                        <tr
+                          key={e.id}
+                          className="clickable child-row"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            setSelected(e);
+                            setDetected(e.detected);
+                            setBlocked(e.blocked);
+                          }}
+                        >
+                          <td></td>
+                          <td>
+                            <span className="module-label">{MODULE_LABELS[e.module] || e.module}</span>
+                          </td>
+                          <td className="bool-no">—</td>
+                          <td>{formatTime(e.created_at)}</td>
+                          <td>{e.action}</td>
+                          <td>{statusBadge(e.status)}</td>
+                          <td className={e.detected ? "bool-yes" : "bool-no"}>
+                            {e.detected ? "Yes" : "No"}
+                          </td>
+                          <td className={e.blocked ? "bool-yes" : "bool-no"}>
+                            {e.blocked ? "Yes" : "No"}
+                          </td>
+                        </tr>
+                      ))}
+                  </Fragment>
                 ))
               )}
             </tbody>
