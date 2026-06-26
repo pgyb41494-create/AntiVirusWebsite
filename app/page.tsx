@@ -54,6 +54,31 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleString();
 }
 
+function formatEventDetail(event: AvEvent): string {
+  const payload = event.payload;
+  if (payload && typeof payload === "object") {
+    const log = payload.display_log;
+    const result = payload.display_result;
+    if (Array.isArray(log) || typeof result === "string") {
+      const lines: string[] = [
+        `Action: ${event.action}`,
+        `Status: ${event.status}`,
+        "",
+        "Activity log",
+      ];
+      if (Array.isArray(log)) {
+        for (const line of log) lines.push(`> ${line}`);
+      }
+      if (typeof result === "string") {
+        lines.push("", `Result: ${result}`);
+      }
+      if (event.error_message) lines.push("", `Error: ${event.error_message}`);
+      return lines.join("\n");
+    }
+  }
+  return JSON.stringify(event, null, 2);
+}
+
 function getPcName(events: AvEvent[]): string {
   for (const e of events) {
     const h = e.payload?.hostname;
@@ -287,7 +312,7 @@ export default function DashboardPage() {
               ✕
             </button>
           </div>
-          <pre>{JSON.stringify(selected, null, 2)}</pre>
+          <pre>{formatEventDetail(selected)}</pre>
           <div className="drawer-foot">
             <label>
               <input type="checkbox" checked={detected} onChange={(e) => setDetected(e.target.checked)} />
