@@ -1,7 +1,11 @@
-/** Production Railway API — override with NEXT_PUBLIC_API_URL if needed. */
+/** Railway API — browser uses same-origin /api proxy via next.config rewrites. */
 export const DEFAULT_API_URL = "https://antivirusapi-production.up.railway.app";
 
 export function getApiUrl(): string {
+  // Client: relative paths hit Vercel rewrite → Railway (no CORS).
+  if (typeof window !== "undefined") {
+    return "";
+  }
   const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim();
   return (fromEnv || DEFAULT_API_URL).replace(/\/$/, "");
 }

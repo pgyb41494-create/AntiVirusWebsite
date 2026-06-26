@@ -111,7 +111,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <p className="api-banner">API: {apiUrl}</p>
+      <p className="api-banner">API: {typeof window !== "undefined" ? "proxied via Vercel → Railway" : apiUrl}</p>
       {error && <p className="api-banner error">{error}</p>}
 
       <section className="stats-grid">
