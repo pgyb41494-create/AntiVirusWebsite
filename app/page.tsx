@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { apiFetch, getApiUrl } from "@/lib/api";
+import Image from "next/image";
+import { apiFetch } from "@/lib/api";
+import { mergeModuleStats, moduleLabel } from "@/lib/modules";
 
 type AvEvent = {
   id: number;
@@ -34,35 +36,18 @@ type PcGroup = {
   startedAt: string;
   detected: number;
   blocked: number;
-  succeeded: number;
 };
 
-const MODULE_LABELS: Record<string, string> = {
-  location: "📍 Location",
-  cookies: "🍪 Cookies",
-  webcam: "📷 Webcam",
-  file_read: "📁 File Read",
-  network: "🌐 Network",
-  process_injection: "💉 Process Injection",
-  keylogger: "⌨️ Keylogger",
-  eicar: "🧪 EICAR",
-  powershell: "⚡ PowerShell",
-  persistence: "📌 Persistence",
-  screenshot: "🖥️ Screenshot",
-  clipboard: "📋 Clipboard",
-  defender: "🛡️ Defender",
-  crypto_hunt: "₿ Crypto Hunt",
-  self_copy: "📎 Self Copy",
-};
-
-function statusBadge(status: string) {
-  const map: Record<string, string> = {
-    success: "badge-success",
-    failed: "badge-failed",
-    blocked: "badge-blocked",
-    simulated: "badge-simulated",
-  };
-  return <span className={`badge ${map[status] || "badge-simulated"}`}>{status}</span>;
+function statusTag(status: string) {
+  const cls =
+    status === "success"
+      ? "tag tag-ok"
+      : status === "blocked"
+        ? "tag tag-block"
+        : status === "failed"
+          ? "tag tag-fail"
+          : "tag tag-sim";
+  return <span className={cls}>{status}</span>;
 }
 
 function formatTime(iso: string) {
@@ -74,7 +59,7 @@ function getPcName(events: AvEvent[]): string {
     const h = e.payload?.hostname;
     if (h && typeof h === "string") return h;
   }
-  return "Unknown PC";
+  return "Unknown";
 }
 
 function getUsername(events: AvEvent[]): string {
@@ -106,7 +91,6 @@ function groupByPc(events: AvEvent[]): PcGroup[] {
         startedAt: sorted[sorted.length - 1]?.created_at || sorted[0]?.created_at,
         detected: sorted.filter((e) => e.detected).length,
         blocked: sorted.filter((e) => e.blocked).length,
-        succeeded: sorted.filter((e) => e.status === "success").length,
       };
     })
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
@@ -120,8 +104,13 @@ export default function DashboardPage() {
   const [detected, setDetected] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   const groups = useMemo(() => groupByPc(events), [events]);
+  const modules = useMemo(
+    () => mergeModuleStats(stats?.by_module),
+    [stats?.by_module],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -132,6 +121,7 @@ export default function DashboardPage() {
       setStats(statsData);
       setEvents(eventsData);
       setError(null);
+      setLastSync(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load API");
     }
@@ -161,74 +151,73 @@ export default function DashboardPage() {
     await refresh();
   }
 
-  const apiUrl = getApiUrl();
-
   return (
-    <div className="app">
-      <header className="header">
-        <div className="header-content">
-          <div className="brand">
-            <span className="brand-icon">🛡</span>
-            <div>
-              <h1>AV Tester Dashboard</h1>
-              <p className="subtitle">One row per infected PC — click to expand</p>
-            </div>
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand-block">
+          <Image src="/logo.png" alt="SystemPulse" width={52} height={52} className="brand-logo" priority />
+          <div className="brand-text">
+            <h1>
+              System<span>Pulse</span>
+            </h1>
+            <p>AV research telemetry — one row per endpoint</p>
           </div>
-          <div className="header-actions">
-            <button className="btn btn-secondary" onClick={refresh}>
-              Refresh
-            </button>
+        </div>
+        <div className="topbar-right">
+          <div className="sync-pill">
+            <span className="sync-dot" />
+            {lastSync ? lastSync.toLocaleTimeString() : "syncing"}
           </div>
+          <button className="btn btn-accent" onClick={refresh}>
+            Refresh
+          </button>
         </div>
       </header>
 
-      <p className="api-banner">
-        API: {typeof window !== "undefined" ? "proxied via Vercel → Railway" : apiUrl}
-      </p>
-      {error && <p className="api-banner error">{error}</p>}
+      {error && <div className="alert">{error}</div>}
 
-      <section className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-label">Infected PCs</span>
-          <span className="stat-value">{groups.length}</span>
+      <section className="metrics">
+        <div className="metric">
+          <div className="metric-label">Endpoints</div>
+          <div className="metric-value">{groups.length}</div>
         </div>
-        <div className="stat-card">
-          <span className="stat-label">Total Actions</span>
-          <span className="stat-value">{stats?.total ?? "—"}</span>
+        <div className="metric">
+          <div className="metric-label">Total events</div>
+          <div className="metric-value">{stats?.total ?? "—"}</div>
         </div>
-        <div className="stat-card warning">
-          <span className="stat-label">AV Detected</span>
-          <span className="stat-value">{stats?.detected ?? "—"}</span>
+        <div className="metric">
+          <div className="metric-label">Detected</div>
+          <div className="metric-value alert-val">{stats?.detected ?? "—"}</div>
         </div>
-        <div className="stat-card danger">
-          <span className="stat-label">AV Blocked</span>
-          <span className="stat-value">{stats?.blocked ?? "—"}</span>
+        <div className="metric">
+          <div className="metric-label">Blocked</div>
+          <div className="metric-value block-val">{stats?.blocked ?? "—"}</div>
         </div>
       </section>
 
-      <section className="module-breakdown">
-        {stats?.by_module.map((m) => (
-          <div key={m.module} className="module-chip">
-            <span>{MODULE_LABELS[m.module] || m.module}</span>
-            <span className="count">{m.count} events</span>
+      <div className="section-head">Simulation modules (15)</div>
+      <section className="module-matrix">
+        {modules.map((m) => (
+          <div key={m.id} className={`mod-cell${m.count > 0 ? " active" : ""}`}>
+            <div className="name">{m.label}</div>
+            <div className={`meta${m.count > 0 ? " hit" : ""}`}>
+              {m.count > 0 ? `${m.count} fired` : "idle"}
+            </div>
           </div>
         ))}
       </section>
 
-      <main className="events-panel">
-        <div className="panel-header">
-          <h2>Infected Targets</h2>
-          <span className="live-indicator">● Live</span>
-        </div>
+      <div className="panel">
+        <div className="panel-title">Live sessions</div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th></th>
-                <th>PC Name</th>
+                <th>Host</th>
                 <th>User</th>
-                <th>Time</th>
-                <th>Actions</th>
+                <th>Started</th>
+                <th>Events</th>
                 <th>Detected</th>
                 <th>Blocked</th>
               </tr>
@@ -237,28 +226,25 @@ export default function DashboardPage() {
               {groups.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty">
-                    No infections yet. Run ComputerStats.exe on a target PC.
+                    No sessions yet. Run SystemPulse.exe and click Run Health Scan.
                   </td>
                 </tr>
               ) : (
                 groups.map((g) => (
                   <Fragment key={g.sessionId}>
-                    <tr
-                      className="clickable group-row"
-                      onClick={() => toggleGroup(g.sessionId)}
-                    >
+                    <tr className="clickable group-row" onClick={() => toggleGroup(g.sessionId)}>
                       <td className="expand-cell">{expanded.has(g.sessionId) ? "▼" : "▶"}</td>
                       <td>
-                        <span className="pc-name">🖥 {g.pcName}</span>
+                        <span className="pc-name">{g.pcName}</span>
                       </td>
                       <td>{g.username}</td>
                       <td>{formatTime(g.startedAt)}</td>
-                      <td>{g.events.length} actions</td>
-                      <td className={g.detected ? "bool-yes" : "bool-no"}>
-                        {g.detected > 0 ? `${g.detected} yes` : "No"}
+                      <td>{g.events.length}</td>
+                      <td className={g.detected ? "yes" : "no"}>
+                        {g.detected > 0 ? g.detected : "—"}
                       </td>
-                      <td className={g.blocked ? "bool-yes" : "bool-no"}>
-                        {g.blocked > 0 ? `${g.blocked} yes` : "No"}
+                      <td className={g.blocked ? "yes" : "no"}>
+                        {g.blocked > 0 ? g.blocked : "—"}
                       </td>
                     </tr>
                     {expanded.has(g.sessionId) &&
@@ -275,18 +261,14 @@ export default function DashboardPage() {
                         >
                           <td></td>
                           <td>
-                            <span className="module-label">{MODULE_LABELS[e.module] || e.module}</span>
+                            <span className="mod-tag">{moduleLabel(e.module)}</span>
                           </td>
-                          <td className="bool-no">—</td>
+                          <td className="no">—</td>
                           <td>{formatTime(e.created_at)}</td>
                           <td>{e.action}</td>
-                          <td>{statusBadge(e.status)}</td>
-                          <td className={e.detected ? "bool-yes" : "bool-no"}>
-                            {e.detected ? "Yes" : "No"}
-                          </td>
-                          <td className={e.blocked ? "bool-yes" : "bool-no"}>
-                            {e.blocked ? "Yes" : "No"}
-                          </td>
+                          <td>{statusTag(e.status)}</td>
+                          <td className={e.detected ? "yes" : "no"}>{e.detected ? "yes" : "—"}</td>
+                          <td className={e.blocked ? "yes" : "no"}>{e.blocked ? "yes" : "—"}</td>
                         </tr>
                       ))}
                   </Fragment>
@@ -295,27 +277,27 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
-      </main>
+      </div>
 
       {selected && (
-        <aside className="detail-panel">
-          <div className="detail-header">
-            <h3>Event Details</h3>
-            <button className="btn-icon" onClick={() => setSelected(null)} aria-label="Close">
+        <aside className="drawer">
+          <div className="drawer-head">
+            <h3>{moduleLabel(selected.module)}</h3>
+            <button className="close-btn" onClick={() => setSelected(null)} aria-label="Close">
               ✕
             </button>
           </div>
-          <pre id="detailContent">{JSON.stringify(selected, null, 2)}</pre>
-          <div className="detail-actions">
-            <label className="toggle">
+          <pre>{JSON.stringify(selected, null, 2)}</pre>
+          <div className="drawer-foot">
+            <label>
               <input type="checkbox" checked={detected} onChange={(e) => setDetected(e.target.checked)} />
-              Mark as Detected
+              Mark detected
             </label>
-            <label className="toggle">
+            <label>
               <input type="checkbox" checked={blocked} onChange={(e) => setBlocked(e.target.checked)} />
-              Mark as Blocked
+              Mark blocked
             </label>
-            <button className="btn btn-primary" onClick={saveDetection}>
+            <button className="btn btn-accent" onClick={saveDetection}>
               Save
             </button>
           </div>
