@@ -1,26 +1,21 @@
 # AntiVirusWebsite
 
-Next.js dashboard for AV research simulation events. Deploy on **Vercel**.
+Next.js dashboard for AV research simulation events. Deploy on **Vercel** — **no environment variables required**.
+
+The API URL is baked in: `https://antivirusapi-production.up.railway.app`
 
 ## Vercel deploy
 
 1. Push to GitHub (`pgyb41494-create/AntiVirusWebsite`)
-2. [Vercel](https://vercel.com) → **Import** → select repo
-3. Set environment variables:
-   - `NEXT_PUBLIC_API_URL` — your Railway API URL
-   - `API_URL` — same Railway API URL (server-side, for clear button)
-   - `SIMULATOR_API_KEY` — same secret as Railway API (for clear button)
-4. Deploy
+2. [Vercel](https://vercel.com) → **Import** → select repo → **Deploy**
 
-## Local dev
+That's it. No env vars to configure.
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+## Optional override
 
-Open http://localhost:3000
+If your Railway API URL changes, set in Vercel:
+
+- `NEXT_PUBLIC_API_URL` — custom API URL
 
 ## Architecture
 
@@ -29,3 +24,12 @@ Simulator (local VM) → AntiVirusAPI (Railway) ← AntiVirusWebsite (Vercel)
                               ↑
                        AntiVirusBot (Railway)
 ```
+
+## Secrets stay on Railway
+
+| Service | Env vars needed |
+|---------|-----------------|
+| **AntiVirusAPI** | `SIMULATOR_API_KEY`, `BOT_API_KEY`, `DATABASE_URL` (auto) |
+| **AntiVirusBot** | `DISCORD_TOKEN`, `API_URL`, `BOT_API_KEY` |
+| **AntiVirusWebsite** | None |
+| **Simulator** (local) | `API_URL`, `SIMULATOR_API_KEY` |

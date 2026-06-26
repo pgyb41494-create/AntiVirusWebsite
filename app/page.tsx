@@ -81,13 +81,6 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  async function clearEvents() {
-    if (!confirm("Clear all simulation events?")) return;
-    await fetch("/api/clear", { method: "DELETE" });
-    setSelected(null);
-    await refresh();
-  }
-
   async function saveDetection() {
     if (!selected) return;
     await apiFetch(`/api/events/${selected.id}`, {
@@ -114,18 +107,11 @@ export default function DashboardPage() {
             <button className="btn btn-secondary" onClick={refresh}>
               Refresh
             </button>
-            <button className="btn btn-danger" onClick={clearEvents}>
-              Clear Events
-            </button>
           </div>
         </div>
       </header>
 
-      {apiUrl ? (
-        <p className="api-banner">API: {apiUrl}</p>
-      ) : (
-        <p className="api-banner error">Set NEXT_PUBLIC_API_URL in Vercel environment variables</p>
-      )}
+      <p className="api-banner">API: {apiUrl}</p>
       {error && <p className="api-banner error">{error}</p>}
 
       <section className="stats-grid">

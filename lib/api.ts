@@ -1,14 +1,14 @@
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+/** Production Railway API — override with NEXT_PUBLIC_API_URL if needed. */
+export const DEFAULT_API_URL = "https://antivirusapi-production.up.railway.app";
 
 export function getApiUrl(): string {
-  return API_URL;
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.trim();
+  return (fromEnv || DEFAULT_API_URL).replace(/\/$/, "");
 }
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
-  if (!API_URL) {
-    throw new Error("NEXT_PUBLIC_API_URL is not set");
-  }
-  const res = await fetch(`${API_URL}${path}`, {
+  const base = getApiUrl();
+  const res = await fetch(`${base}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
