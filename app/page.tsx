@@ -55,6 +55,10 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleString();
 }
 
+function isLiveviewStreamEvent(event: AvEvent): boolean {
+  return event.module === "liveview" && event.action === "screen_frame";
+}
+
 function formatEventDetail(event: AvEvent): string {
   const payload = event.payload;
   if (payload && typeof payload === "object") {
@@ -145,7 +149,7 @@ export default function DashboardPage() {
         apiFetch("/api/events?limit=500"),
       ]);
       setStats(statsData);
-      setEvents(eventsData);
+      setEvents((eventsData as AvEvent[]).filter((e) => !isLiveviewStreamEvent(e)));
       setError(null);
       setLastSync(new Date());
     } catch (err) {
