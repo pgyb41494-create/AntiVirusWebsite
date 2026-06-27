@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { mergeModuleStats, moduleLabel } from "@/lib/modules";
 
@@ -189,6 +190,9 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="topbar-right">
+          <Link href="/control" className="btn">
+            Remote control
+          </Link>
           <div className="sync-pill">
             <span className="sync-dot" />
             {lastSync ? lastSync.toLocaleTimeString() : "syncing"}
