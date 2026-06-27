@@ -138,7 +138,6 @@ export default function ControlPage() {
   const liveWrapRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const lastFrameId = useRef(0);
-  const pollInFlight = useRef(false);
   const hasFrameRef = useRef(false);
   const fpsCounter = useRef({ n: 0, t: Date.now() });
 
@@ -187,8 +186,7 @@ export default function ControlPage() {
   }, [pin, pinOk]);
 
   const refreshFrame = useCallback(async () => {
-    if (!pinOk || !selected || pollInFlight.current) return;
-    pollInFlight.current = true;
+    if (!pinOk || !selected) return;
     try {
       const since = lastFrameId.current > 0 ? `&since_id=${lastFrameId.current}` : "";
       const res = await controlFetch(
@@ -198,20 +196,21 @@ export default function ControlPage() {
       if (!res.ok) return;
       const data = await res.json();
       const event = data.event as AvEvent | null;
-      const b64 = event?.payload?.image_base64;
+      if (!event?.payload?.image_base64) return;
+      const b64 = event.payload.image_base64;
       if (typeof b64 !== "string") return;
-      const fmt = event?.payload?.image_format === "jpeg" ? "jpeg" : "png";
+      const fmt = event.payload.image_format === "jpeg" ? "jpeg" : "png";
       const src = `data:image/${fmt};base64,${b64}`;
       if (imgRef.current) {
         imgRef.current.src = src;
       }
-      lastFrameId.current = event!.id;
+      lastFrameId.current = event.id;
       if (!hasFrameRef.current) {
         hasFrameRef.current = true;
         setHasFrame(true);
       }
-      const fw = event?.payload?.width;
-      const fh = event?.payload?.height;
+      const fw = event.payload.width;
+      const fh = event.payload.height;
       if (typeof fw === "number" && typeof fh === "number") {
         setStreamSize(`${fw}×${fh}`);
       }
@@ -223,8 +222,6 @@ export default function ControlPage() {
       }
     } catch {
       /* ignore */
-    } finally {
-      pollInFlight.current = false;
     }
   }, [pinOk, selected, pin]);
 
@@ -237,18 +234,19 @@ export default function ControlPage() {
 
   useEffect(() => {
     if (!pinOk || !selected || !liveOn) return;
-    let raf = 0;
-    let lastPoll = 0;
-    const tick = (now: number) => {
-      if (now - lastPoll >= FRAME_POLL_MS) {
-        lastPoll = now;
-        void refreshFrame();
+    let alive = true;
+    const pump = async () => {
+      while (alive) {
+        const t0 = performance.now();
+        await refreshFrame();
+        const wait = Math.max(0, FRAME_POLL_MS - (performance.now() - t0));
+        await new Promise((r) => setTimeout(r, wait));
       }
-      raf = requestAnimationFrame(tick);
     };
-    void refreshFrame();
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    void pump();
+    return () => {
+      alive = false;
+    };
   }, [pinOk, selected, liveOn, refreshFrame]);
 
   function queueInput(payload: Record<string, unknown>) {
