@@ -13,7 +13,8 @@ export async function PUT(req: NextRequest) {
       body: JSON.stringify({
         hostname: body.hostname,
         enabled: Boolean(body.enabled),
-        interval: Number(body.interval ?? 0.15),
+        interval: Number(body.interval ?? 0.12),
+        quality: String(body.quality ?? "balanced"),
         guild_id: "website",
       }),
   });

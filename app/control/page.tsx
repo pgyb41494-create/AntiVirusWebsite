@@ -18,9 +18,21 @@ type AvEvent = {
   created_at: string;
 };
 
-const FRAME_POLL_MS = 75;
-const DEFAULT_INTERVAL = 0.15;
+const FRAME_POLL_MS = 50;
+const DEFAULT_INTERVAL = 0.12;
 const WHEEL_DELTA = 120;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.2;
+
+const QUALITY_PRESETS = [
+  { id: "speed", label: "Speed", hint: "~640p · max FPS", interval: 0.08 },
+  { id: "balanced", label: "Balanced", hint: "~960p", interval: 0.12 },
+  { id: "hd", label: "HD", hint: "~1280p", interval: 0.18 },
+  { id: "full", label: "Full", hint: "~1920p · sharpest", interval: 0.28 },
+] as const;
+
+type QualityPreset = (typeof QUALITY_PRESETS)[number]["id"];
 
 function normalizeRemoteKey(key: string): string {
   const k = key.toLowerCase();
@@ -105,14 +117,6 @@ async function controlFetch(
   });
 }
 
-function imageSrcFromEvent(event: AvEvent | null): string | null {
-  if (!event?.payload) return null;
-  const b64 = event.payload.image_base64;
-  if (typeof b64 !== "string") return null;
-  const fmt = event.payload.image_format === "jpeg" ? "jpeg" : "png";
-  return `data:image/${fmt};base64,${b64}`;
-}
-
 export default function ControlPage() {
   const [pin, setPin] = useState("");
   const [pinOk, setPinOk] = useState(false);
@@ -120,7 +124,10 @@ export default function ControlPage() {
   const [selected, setSelected] = useState<string>("");
   const [liveOn, setLiveOn] = useState(false);
   const [intervalSec, setIntervalSec] = useState(DEFAULT_INTERVAL);
-  const [frame, setFrame] = useState<AvEvent | null>(null);
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("balanced");
+  const [hasFrame, setHasFrame] = useState(false);
+  const [streamSize, setStreamSize] = useState("");
+  const [zoom, setZoom] = useState(1);
   const [text, setText] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +135,10 @@ export default function ControlPage() {
   const [keysLive, setKeysLive] = useState(true);
   const imgRef = useRef<HTMLImageElement>(null);
   const liveWrapRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const lastFrameId = useRef(0);
+  const pollInFlight = useRef(false);
+  const hasFrameRef = useRef(false);
   const fpsCounter = useRef({ n: 0, t: Date.now() });
 
   const host = useMemo(
@@ -136,8 +146,18 @@ export default function ControlPage() {
     [hosts, selected],
   );
 
-  const screenW = Number(host?.screen_width || frame?.payload?.screen_width || 1920);
-  const screenH = Number(host?.screen_height || frame?.payload?.screen_height || 1080);
+  const screenW = Number(host?.screen_width || 1920);
+  const screenH = Number(host?.screen_height || 1080);
+
+  const liveBody = useCallback(
+    (enabled: boolean) => ({
+      hostname: selected,
+      enabled,
+      interval: intervalSec,
+      quality: qualityPreset,
+    }),
+    [selected, intervalSec, qualityPreset],
+  );
 
   useEffect(() => {
     const saved = sessionStorage.getItem("sp-control-pin") || "";
@@ -166,7 +186,8 @@ export default function ControlPage() {
   }, [pin, pinOk]);
 
   const refreshFrame = useCallback(async () => {
-    if (!pinOk || !selected) return;
+    if (!pinOk || !selected || pollInFlight.current) return;
+    pollInFlight.current = true;
     try {
       const since = lastFrameId.current > 0 ? `&since_id=${lastFrameId.current}` : "";
       const res = await controlFetch(
@@ -176,9 +197,23 @@ export default function ControlPage() {
       if (!res.ok) return;
       const data = await res.json();
       const event = data.event as AvEvent | null;
-      if (!event?.payload?.image_base64) return;
-      lastFrameId.current = event.id;
-      setFrame(event);
+      const b64 = event?.payload?.image_base64;
+      if (typeof b64 !== "string") return;
+      const fmt = event?.payload?.image_format === "jpeg" ? "jpeg" : "png";
+      const src = `data:image/${fmt};base64,${b64}`;
+      if (imgRef.current) {
+        imgRef.current.src = src;
+      }
+      lastFrameId.current = event!.id;
+      if (!hasFrameRef.current) {
+        hasFrameRef.current = true;
+        setHasFrame(true);
+      }
+      const fw = event?.payload?.width;
+      const fh = event?.payload?.height;
+      if (typeof fw === "number" && typeof fh === "number") {
+        setStreamSize(`${fw}×${fh}`);
+      }
       fpsCounter.current.n += 1;
       const now = Date.now();
       if (now - fpsCounter.current.t >= 1000) {
@@ -187,6 +222,8 @@ export default function ControlPage() {
       }
     } catch {
       /* ignore */
+    } finally {
+      pollInFlight.current = false;
     }
   }, [pinOk, selected, pin]);
 
@@ -199,9 +236,18 @@ export default function ControlPage() {
 
   useEffect(() => {
     if (!pinOk || !selected || !liveOn) return;
-    refreshFrame();
-    const t = setInterval(refreshFrame, FRAME_POLL_MS);
-    return () => clearInterval(t);
+    let raf = 0;
+    let lastPoll = 0;
+    const tick = (now: number) => {
+      if (now - lastPoll >= FRAME_POLL_MS) {
+        lastPoll = now;
+        void refreshFrame();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    void refreshFrame();
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [pinOk, selected, liveOn, refreshFrame]);
 
   function queueInput(payload: Record<string, unknown>) {
@@ -230,25 +276,74 @@ export default function ControlPage() {
     setStatus(`Queued ${module}`);
   }
 
-  async function toggleLive(enabled: boolean) {
-    if (!selected) return;
+  async function pushLiveSettings(enabled: boolean) {
+    if (!selected) return false;
     const res = await controlFetch("/api/control/liveview", pin, {
       method: "PUT",
-      body: JSON.stringify({ hostname: selected, enabled, interval: intervalSec }),
+      body: JSON.stringify(liveBody(enabled)),
     });
-    if (!res.ok) {
-      setStatus(`Live view failed: ${await res.text()}`);
+    return res.ok;
+  }
+
+  async function toggleLive(enabled: boolean) {
+    if (!selected) return;
+    const ok = await pushLiveSettings(enabled);
+    if (!ok) {
+      setStatus(`Live view failed`);
       return;
     }
     setLiveOn(enabled);
     if (enabled) {
       lastFrameId.current = 0;
+      hasFrameRef.current = false;
+      setHasFrame(false);
+      setStreamSize("");
       fpsCounter.current = { n: 0, t: Date.now() };
-      refreshFrame();
-      setStatus(`Turbo live ~${intervalSec}s capture · poll ${FRAME_POLL_MS}ms`);
+      void refreshFrame();
+      const preset = QUALITY_PRESETS.find((p) => p.id === qualityPreset);
+      setStatus(
+        `Live ${preset?.label ?? qualityPreset} · ${intervalSec}s · poll ${FRAME_POLL_MS}ms`,
+      );
     } else {
       setStatus("Live screen stopped");
       setFps(0);
+    }
+  }
+
+  async function applyStreamSettings(next: {
+    quality?: QualityPreset;
+    interval?: number;
+  }) {
+    if (next.quality) {
+      setQualityPreset(next.quality);
+      const preset = QUALITY_PRESETS.find((p) => p.id === next.quality);
+      if (preset && !liveOn) setIntervalSec(preset.interval);
+    }
+    if (next.interval !== undefined) setIntervalSec(next.interval);
+    if (liveOn && selected) {
+      const q = next.quality ?? qualityPreset;
+      const iv = next.interval ?? intervalSec;
+      const res = await controlFetch("/api/control/liveview", pin, {
+        method: "PUT",
+        body: JSON.stringify({
+          hostname: selected,
+          enabled: true,
+          interval: iv,
+          quality: q,
+        }),
+      });
+      if (res.ok) setStatus(`Stream updated · ${q} · ${iv}s`);
+    }
+  }
+
+  function clampZoom(value: number) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 10) / 10));
+  }
+
+  function onViewportWheel(ev: React.WheelEvent<HTMLDivElement>) {
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      setZoom((z) => clampZoom(z + (ev.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)));
     }
   }
 
@@ -286,6 +381,11 @@ export default function ControlPage() {
   }
 
   function onScreenWheel(ev: React.WheelEvent<HTMLImageElement>) {
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      setZoom((z) => clampZoom(z + (ev.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)));
+      return;
+    }
     ev.preventDefault();
     if (!selected) return;
     const pt = screenCoords(ev);
@@ -328,7 +428,7 @@ export default function ControlPage() {
     setPinOk(true);
   }
 
-  const preview = imageSrcFromEvent(frame);
+  const preview = hasFrame;
 
   if (!pinOk) {
     return (
@@ -362,7 +462,7 @@ export default function ControlPage() {
           <h1>
             System<span>Pulse</span> Control
           </h1>
-          <p>Turbo — ~0.15s frames · ~75ms refresh · scroll · Win key · combos</p>
+          <p>Live stream · zoom · resolution presets · smooth view</p>
         </div>
         <div className="topbar-right">
           {liveOn && fps > 0 && <span className="fps-pill">{fps} fps</span>}
@@ -403,7 +503,10 @@ export default function ControlPage() {
                     onClick={() => {
                       setSelected(h.hostname);
                       setLiveOn(false);
-                      setFrame(null);
+                      hasFrameRef.current = false;
+                      setHasFrame(false);
+                      setStreamSize("");
+                      setZoom(1);
                       lastFrameId.current = 0;
                     }}
                   >
@@ -431,20 +534,54 @@ export default function ControlPage() {
             <>
               <div className="live-toolbar">
                 <label>
+                  Quality
+                  <select
+                    className="control-input"
+                    value={qualityPreset}
+                    onChange={(e) => {
+                      const q = e.target.value as QualityPreset;
+                      void applyStreamSettings({ quality: q });
+                    }}
+                  >
+                    {QUALITY_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label} — {p.hint}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
                   Capture (s)
                   <input
                     type="number"
-                    min={0.12}
+                    min={0.08}
                     max={15}
-                    step={0.05}
+                    step={0.02}
                     value={intervalSec}
                     onChange={(e) => setIntervalSec(Number(e.target.value))}
+                    onBlur={() => void applyStreamSettings({ interval: intervalSec })}
                     className="control-input narrow"
                   />
                 </label>
+                <label>
+                  Zoom
+                  <input
+                    type="range"
+                    min={ZOOM_MIN}
+                    max={ZOOM_MAX}
+                    step={0.1}
+                    value={zoom}
+                    onChange={(e) => setZoom(Number(e.target.value))}
+                    className="zoom-slider"
+                  />
+                  <span className="zoom-label">{Math.round(zoom * 100)}%</span>
+                </label>
+                <button type="button" className="btn btn-sm" onClick={() => setZoom(1)}>
+                  Fit
+                </button>
                 {!liveOn ? (
                   <button className="btn btn-accent" onClick={() => toggleLive(true)}>
-                    Start turbo live
+                    Start live
                   </button>
                 ) : (
                   <button className="btn" onClick={() => toggleLive(false)}>
@@ -452,6 +589,12 @@ export default function ControlPage() {
                   </button>
                 )}
               </div>
+              {streamSize && liveOn && (
+                <p className="stream-meta">
+                  Stream {streamSize} → desktop {screenW}×{screenH}
+                  {fps > 0 && ` · ${fps} fps`}
+                </p>
+              )}
               <div
                 ref={liveWrapRef}
                 className={`live-frame-wrap${keysLive ? " live-focused" : ""}`}
@@ -459,29 +602,36 @@ export default function ControlPage() {
                 onKeyDown={onLiveKeyDown}
                 onClick={() => liveWrapRef.current?.focus()}
               >
-                {preview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    ref={imgRef}
-                    src={preview}
-                    alt="Live screen"
-                    className="live-frame"
-                    onClick={onScreenClick}
-                    onContextMenu={onScreenContextMenu}
-                    onDoubleClick={onScreenDoubleClick}
-                    onWheel={onScreenWheel}
-                    draggable={false}
-                    title="Click · right-click · double-click · scroll wheel"
-                  />
-                ) : (
-                  <div className="live-placeholder">
-                    {liveOn ? "Waiting for first frame…" : "Start turbo live to see their desktop"}
+                <div
+                  ref={viewportRef}
+                  className="live-viewport"
+                  onWheel={onViewportWheel}
+                >
+                  <div className="live-zoom-inner" style={{ width: `${zoom * 100}%` }}>
+                    {preview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        ref={imgRef}
+                        alt="Live screen"
+                        className="live-frame"
+                        onClick={onScreenClick}
+                        onContextMenu={onScreenContextMenu}
+                        onDoubleClick={onScreenDoubleClick}
+                        onWheel={onScreenWheel}
+                        draggable={false}
+                        title="Ctrl+wheel zoom · wheel scroll · click to control"
+                      />
+                    ) : (
+                      <div className="live-placeholder">
+                        {liveOn ? "Waiting for first frame…" : "Start live to see their desktop"}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
               <p className="control-hint">
-                Screen {screenW}×{screenH} — click the live view then type (Win, Ctrl+C, arrows, F-keys).
-                Win / Alt shortcuts need the latest SystemPulse.exe run as Administrator on their PC.
+                Ctrl+wheel or slider to zoom · scroll inside view to pan when zoomed · Quality
+                changes capture resolution on their PC (rebuild latest exe).
               </p>
 
               <label className="keys-live-toggle">
