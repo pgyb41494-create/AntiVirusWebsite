@@ -134,6 +134,7 @@ export default function ControlPage() {
   const [error, setError] = useState<string | null>(null);
   const [fps, setFps] = useState(0);
   const [keysLive, setKeysLive] = useState(true);
+  const [inputLocked, setInputLocked] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const liveWrapRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -226,6 +227,10 @@ export default function ControlPage() {
   }, [pinOk, selected, pin]);
 
   useEffect(() => {
+    setInputLocked(false);
+  }, [selected]);
+
+  useEffect(() => {
     if (!pinOk) return;
     refreshOnline();
     const t = setInterval(refreshOnline, 3000);
@@ -259,6 +264,34 @@ export default function ControlPage() {
         if (!res.ok) setStatus("Input queue failed");
       })
       .catch(() => setStatus("Input queue failed"));
+  }
+
+  async function setRemoteInputLock(lock: boolean) {
+    if (!selected) return false;
+    try {
+      const res = await controlFetch("/api/control/command", pin, {
+        method: "POST",
+        body: JSON.stringify({
+          hostname: selected,
+          kind: "input",
+          payload: { action: "input_lock", lock },
+        }),
+      });
+      if (!res.ok) {
+        setStatus("Input lock command failed");
+        return false;
+      }
+      setInputLocked(lock);
+      setStatus(
+        lock
+          ? "Their keyboard & mouse are locked — you control from here"
+          : "Their keyboard & mouse unlocked",
+      );
+      return true;
+    } catch {
+      setStatus("Input lock command failed");
+      return false;
+    }
   }
 
   function sendCombo(keys: string[]) {
@@ -304,6 +337,11 @@ export default function ControlPage() {
         `Live ${preset?.label ?? qualityPreset} · ${intervalSec}s · poll ${FRAME_POLL_MS}ms`,
       );
     } else {
+      if (inputLocked) {
+        void setRemoteInputLock(false);
+      } else {
+        setInputLocked(false);
+      }
       setStatus("Live screen stopped");
       setFps(0);
     }
@@ -587,6 +625,16 @@ export default function ControlPage() {
                     Stop
                   </button>
                 )}
+                {liveOn && (
+                  <button
+                    type="button"
+                    className={`btn btn-sm${inputLocked ? " btn-accent" : ""}`}
+                    onClick={() => void setRemoteInputLock(!inputLocked)}
+                    title="Block their physical keyboard and mouse (requires SZCTrap as administrator)"
+                  >
+                    {inputLocked ? "Unlock KB/Mouse" : "Lock their KB/Mouse"}
+                  </button>
+                )}
               </div>
               {streamSize && liveOn && (
                 <p className="stream-meta">
@@ -639,7 +687,7 @@ export default function ControlPage() {
                   checked={keysLive}
                   onChange={(e) => setKeysLive(e.target.checked)}
                 />
-                Send keys to their PC when live view is focused. Win / Alt shortcuts need the latest exe + Run as administrator.
+                Send keys to their PC when live view is focused. Lock KB/Mouse blocks them locally — your clicks and keys still work. Requires Run as administrator.
               </label>
 
               <div className="key-quick">
