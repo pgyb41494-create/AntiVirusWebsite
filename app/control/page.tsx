@@ -18,15 +18,16 @@ type AvEvent = {
   created_at: string;
 };
 
-const FRAME_POLL_MS = 50;
-const DEFAULT_INTERVAL = 0.12;
+const FRAME_POLL_MS = 33;
+const DEFAULT_INTERVAL = 1 / 30;
 const WHEEL_DELTA = 120;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 0.2;
 
 const QUALITY_PRESETS = [
-  { id: "speed", label: "Speed", hint: "~640p · max FPS", interval: 0.08 },
+  { id: "ultra", label: "Ultra 30fps", hint: "~480p · target 30fps", interval: 1 / 30 },
+  { id: "speed", label: "Speed", hint: "~640p · ~15fps", interval: 0.08 },
   { id: "balanced", label: "Balanced", hint: "~960p", interval: 0.12 },
   { id: "hd", label: "HD", hint: "~1280p", interval: 0.18 },
   { id: "full", label: "Full", hint: "~1920p · sharpest", interval: 0.28 },
@@ -124,7 +125,7 @@ export default function ControlPage() {
   const [selected, setSelected] = useState<string>("");
   const [liveOn, setLiveOn] = useState(false);
   const [intervalSec, setIntervalSec] = useState(DEFAULT_INTERVAL);
-  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("balanced");
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("ultra");
   const [hasFrame, setHasFrame] = useState(false);
   const [streamSize, setStreamSize] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -462,7 +463,7 @@ export default function ControlPage() {
           <h1>
             System<span>Pulse</span> Control
           </h1>
-          <p>Live stream · zoom · resolution presets · smooth view</p>
+          <p>Ultra 30fps mode · zoom · resolution presets</p>
         </div>
         <div className="topbar-right">
           {liveOn && fps > 0 && <span className="fps-pill">{fps} fps</span>}
@@ -554,10 +555,10 @@ export default function ControlPage() {
                   Capture (s)
                   <input
                     type="number"
-                    min={0.08}
+                    min={0.033}
                     max={15}
-                    step={0.02}
-                    value={intervalSec}
+                    step={0.001}
+                    value={Number(intervalSec.toFixed(3))}
                     onChange={(e) => setIntervalSec(Number(e.target.value))}
                     onBlur={() => void applyStreamSettings({ interval: intervalSec })}
                     className="control-input narrow"
