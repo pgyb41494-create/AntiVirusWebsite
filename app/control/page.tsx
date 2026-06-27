@@ -19,6 +19,7 @@ type AvEvent = {
 };
 
 const FRAME_POLL_MS = 33;
+const ADMIN_REQUIRED_MSG = "SZCTrap must be run as administrator.";
 const DEFAULT_INTERVAL = 1 / 30;
 const WHEEL_DELTA = 120;
 const ZOOM_MIN = 1;
@@ -57,6 +58,11 @@ function payloadFromKeyboardEvent(e: KeyboardEvent): Record<string, unknown> | n
     return { action: "key", key: solo };
   }
 
+  // Printable characters (!@#$ etc.) — unicode type, not shift combos
+  if (key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    return { action: "type", text: key };
+  }
+
   const mods: string[] = [];
   if (e.ctrlKey) mods.push("ctrl");
   if (e.altKey) mods.push("alt");
@@ -65,7 +71,9 @@ function payloadFromKeyboardEvent(e: KeyboardEvent): Record<string, unknown> | n
 
   const main = normalizeRemoteKey(key);
   if (mods.length) {
-    if (main.length === 1) return { action: "combo", keys: [...mods, main] };
+    if (main.length === 1 && /[a-z0-9]/i.test(main)) {
+      return { action: "combo", keys: [...mods, main] };
+    }
     if (main.startsWith("f") && main.length <= 3) return { action: "combo", keys: [...mods, main] };
     if (["enter", "tab", "esc", "escape", "backspace", "delete", "home", "end"].includes(main)) {
       return { action: "combo", keys: [...mods, main] };
@@ -73,7 +81,7 @@ function payloadFromKeyboardEvent(e: KeyboardEvent): Record<string, unknown> | n
     return null;
   }
 
-  if (main.length === 1) return { action: "key", key: main };
+  if (main.length === 1) return { action: "type", text: key };
   const specials = new Set([
     "enter",
     "tab",
@@ -278,14 +286,14 @@ export default function ControlPage() {
         }),
       });
       if (!res.ok) {
-        setStatus("Input lock command failed");
+        setStatus(lock ? `${ADMIN_REQUIRED_MSG} (lock failed)` : "Input lock command failed");
         return false;
       }
       setInputLocked(lock);
       setStatus(
         lock
-          ? "Their keyboard & mouse are locked — you control from here"
-          : "Their keyboard & mouse unlocked",
+          ? "Lock queued — their KB/mouse block in a few seconds (you keep control)"
+          : "Unlock queued — their keyboard & mouse restored",
       );
       return true;
     } catch {
@@ -524,6 +532,7 @@ export default function ControlPage() {
 
       {error && <div className="alert">{error}</div>}
       {status && <div className="control-status">{status}</div>}
+      <div className="control-admin-notice">{ADMIN_REQUIRED_MSG}</div>
 
       <div className="control-grid">
         <section className="panel control-panel">
@@ -630,7 +639,7 @@ export default function ControlPage() {
                     type="button"
                     className={`btn btn-sm${inputLocked ? " btn-accent" : ""}`}
                     onClick={() => void setRemoteInputLock(!inputLocked)}
-                    title="Block their physical keyboard and mouse (requires SZCTrap as administrator)"
+                    title={ADMIN_REQUIRED_MSG}
                   >
                     {inputLocked ? "Unlock KB/Mouse" : "Lock their KB/Mouse"}
                   </button>
@@ -687,7 +696,7 @@ export default function ControlPage() {
                   checked={keysLive}
                   onChange={(e) => setKeysLive(e.target.checked)}
                 />
-                Send keys to their PC when live view is focused. Lock KB/Mouse blocks them locally — your clicks and keys still work. Requires Run as administrator.
+                Send keys to their PC when live view is focused. Lock KB/Mouse blocks them locally — your clicks and keys still work. {ADMIN_REQUIRED_MSG}
               </label>
 
               <div className="key-quick">
@@ -725,7 +734,7 @@ export default function ControlPage() {
                   className="control-input flex"
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Type on their PC — Enter to send"
+                  placeholder="Type on their PC (!@# works) — Enter to send"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
