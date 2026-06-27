@@ -434,6 +434,14 @@ tr.child-row:hover td {
   gap: 1rem;
 }
 
+.control-gate.login-gate {
+  max-width: 22rem;
+}
+
+.login-gate .btn {
+  width: 100%;
+}
+
 .control-gate h1 {
   font-size: 1.25rem;
 }

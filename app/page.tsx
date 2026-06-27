@@ -197,6 +197,16 @@ export default function DashboardPage() {
             <span className="sync-dot" />
             {lastSync ? lastSync.toLocaleTimeString() : "syncing"}
           </div>
+          <button
+            className="btn"
+            type="button"
+            onClick={async () => {
+              await fetch("/api/auth/logout", { method: "POST" });
+              window.location.href = "/login";
+            }}
+          >
+            Log out
+          </button>
           <button className="btn btn-accent" onClick={refresh}>
             Refresh
           </button>
