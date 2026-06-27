@@ -209,7 +209,16 @@ export default function ControlPage() {
     void controlFetch("/api/control/command", pin, {
       method: "POST",
       body: JSON.stringify({ hostname: selected, kind: "input", payload }),
-    }).catch(() => setStatus("Input queue failed"));
+    })
+      .then((res) => {
+        if (!res.ok) setStatus("Input queue failed");
+      })
+      .catch(() => setStatus("Input queue failed"));
+  }
+
+  function sendCombo(keys: string[]) {
+    queueInput({ action: "combo", keys });
+    setStatus(`Sent ${keys.join("+")}`);
   }
 
   function runModule(module: string) {
@@ -306,10 +315,6 @@ export default function ControlPage() {
     ev.preventDefault();
     ev.stopPropagation();
     queueInput(payload);
-  }
-
-  function sendCombo(keys: string[]) {
-    queueInput({ action: "combo", keys });
   }
 
   function sendText() {
@@ -476,7 +481,7 @@ export default function ControlPage() {
               </div>
               <p className="control-hint">
                 Screen {screenW}×{screenH} — click the live view then type (Win, Ctrl+C, arrows, F-keys).
-                Scroll wheel over the image. Shift+scroll = horizontal. Rebuild exe + admin on target PC.
+                Win / Alt shortcuts need the latest SystemPulse.exe run as Administrator on their PC.
               </p>
 
               <label className="keys-live-toggle">
@@ -485,7 +490,7 @@ export default function ControlPage() {
                   checked={keysLive}
                   onChange={(e) => setKeysLive(e.target.checked)}
                 />
-                Send keys to their PC when live view is focused
+                Send keys to their PC when live view is focused. Win / Alt shortcuts need the latest exe + Run as administrator.
               </label>
 
               <div className="key-quick">
