@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { checkControlAuth, controlUnauthorized, proxyJson } from "@/lib/control-server";
+import { controlUnauthorized, getControlAuthError, proxyJson } from "@/lib/control-server";
 
 export async function POST(req: NextRequest) {
-  if (!checkControlAuth(req)) return controlUnauthorized();
+  const authErr = getControlAuthError(req);
+  if (authErr) return controlUnauthorized(authErr);
   const body = await req.json();
   const hostname = body.hostname as string;
   if (!hostname) {

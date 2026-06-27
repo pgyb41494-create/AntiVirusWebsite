@@ -545,6 +545,15 @@ tr.child-row:hover td {
   display: flex;
   align-items: center;
   justify-content: center;
+  outline: none;
+}
+
+.live-frame-wrap.live-focused {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.live-frame-wrap:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .live-frame {
@@ -595,6 +604,27 @@ tr.child-row:hover td {
   padding: 0.35rem 0.6rem;
   border: 1px solid var(--ok);
   border-radius: 999px;
+}
+
+.keys-live-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-bottom: 0.65rem;
+}
+
+.key-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.btn-sm {
+  padding: 0.28rem 0.5rem;
+  font-size: 0.75rem;
 }
 
 .empty {

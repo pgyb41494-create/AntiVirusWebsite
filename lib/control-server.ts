@@ -6,17 +6,33 @@ export const API_URL = (
   "https://antivirusapi-production.up.railway.app"
 ).replace(/\/$/, "");
 
-export function controlUnauthorized() {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export function controlUnauthorized(message?: string) {
+  return NextResponse.json(
+    { error: message || "Unauthorized" },
+    { status: 401 },
+  );
 }
 
-export function checkControlAuth(req: NextRequest): boolean {
+/** Returns null if OK, otherwise a user-facing error string. */
+export function getControlAuthError(req: NextRequest): string | null {
+  if (!process.env.BOT_API_KEY?.trim()) {
+    return (
+      "BOT_API_KEY is missing on Vercel. Add it under Project Settings → Environment Variables " +
+      "(same value as Railway AntiVirusAPI), then redeploy."
+    );
+  }
   const pin = process.env.CONTROL_PIN?.trim();
   if (pin) {
     const provided = req.headers.get("x-control-pin")?.trim();
-    if (provided !== pin) return false;
+    if (provided !== pin) {
+      return "Wrong CONTROL_PIN. Enter the PIN you set in Vercel, or remove CONTROL_PIN if unused.";
+    }
   }
-  return Boolean(process.env.BOT_API_KEY?.trim());
+  return null;
+}
+
+export function checkControlAuth(req: NextRequest): boolean {
+  return getControlAuthError(req) === null;
 }
 
 export function botHeaders(): Record<string, string> {

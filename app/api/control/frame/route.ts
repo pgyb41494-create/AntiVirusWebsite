@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { checkControlAuth, controlUnauthorized, proxyJson } from "@/lib/control-server";
+import { controlUnauthorized, getControlAuthError, proxyJson } from "@/lib/control-server";
 
 export async function GET(req: NextRequest) {
-  if (!checkControlAuth(req)) return controlUnauthorized();
+  const authErr = getControlAuthError(req);
+  if (authErr) return controlUnauthorized(authErr);
   const hostname = req.nextUrl.searchParams.get("hostname");
   if (!hostname) {
     return Response.json({ error: "hostname required" }, { status: 400 });

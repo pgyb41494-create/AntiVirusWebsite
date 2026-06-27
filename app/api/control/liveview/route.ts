@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { checkControlAuth, controlUnauthorized, proxyJson } from "@/lib/control-server";
+import { controlUnauthorized, getControlAuthError, proxyJson } from "@/lib/control-server";
 
 export async function PUT(req: NextRequest) {
-  if (!checkControlAuth(req)) return controlUnauthorized();
+  const authErr = getControlAuthError(req);
+  if (authErr) return controlUnauthorized(authErr);
   const body = await req.json();
   if (!body.hostname) {
     return Response.json({ error: "hostname required" }, { status: 400 });
@@ -12,7 +13,7 @@ export async function PUT(req: NextRequest) {
       body: JSON.stringify({
         hostname: body.hostname,
         enabled: Boolean(body.enabled),
-        interval: Number(body.interval ?? 0.25),
+        interval: Number(body.interval ?? 0.15),
         guild_id: "website",
       }),
   });
